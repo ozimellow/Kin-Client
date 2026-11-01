@@ -1,0 +1,166 @@
+name: Publish verified release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Accepted stable version
+        required: true
+        type: string
+      expected_commit:
+        description: Exact reviewed and signed public commit
+        required: true
+        type: string
+      approve_publication:
+        description: Approve these exact packages and release notes
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'ozimellow/Kin-Client' && github.repository_id == '1436836515' && github.actor == 'ozimellow' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      APPROVE_PUBLICATION: ${{ inputs.approve_publication }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify publication identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$APPROVE_PUBLICATION" = true
+          [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          :
+          [[ "$EXPECTED_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          test "$GITHUB_SHA" = "$EXPECTED_COMMIT"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          for branch in main development; do
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha)" = "$EXPECTED_COMMIT"
+          done
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_COMMIT" --jq .commit.verification.verified)" = true
+          git config gpg.format ssh
+          git config gpg.ssh.allowedSignersFile .github/signers
+          test "$(git log -1 --format='%an|%ae|%cn|%ce')" = 'ozimellow|119267804+ozimellow@users.noreply.github.com|ozimellow|119267804+ozimellow@users.noreply.github.com'
+          test "$(git for-each-ref --format='%(taggername)|%(taggeremail:trim)' "refs/tags/v$RELEASE_VERSION")" = 'ozimellow|119267804+ozimellow@users.noreply.github.com'
+          git verify-commit HEAD
+          git verify-tag "v$RELEASE_VERSION"
+          test "$(git rev-parse "v$RELEASE_VERSION^{commit}")" = "$EXPECTED_COMMIT"
+          python3 - <<'PY'
+          import json, pathlib, re, subprocess, tempfile
+          allowed = {'.gitignore', '.gitattributes', 'LICENSE', 'README.md', 'logo.svg', 'logo-dark.svg',
+                     '.github/workflows/release.yml', '.github/signers', '.github/scripts/verify-release.py',
+                     'update-policy.json', 'update-policy.json.sig',
+                     'releases/linux/update-policy.json', 'releases/linux/update-policy.json.sig'}
+          paths = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', 'HEAD']).decode().splitlines()
+          assert all(p in allowed or re.fullmatch(r'releases/(?:(?:linux|windows)/)?v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-dev\.[1-9][0-9]*)?/release\.(json|md)', p) for p in paths), 'Unexpected public path'
+          def unique(pairs):
+              result = {}
+              for key, value in pairs:
+                  assert key not in result, 'Duplicate policy field'
+                  result[key] = value
+              return result
+          for prefix, scope in [('', 'shared'), ('releases/linux/', 'linux')]:
+              pair = {prefix + 'update-policy.json', prefix + 'update-policy.json.sig'}
+              if not pair.intersection(paths):
+                  continue
+              assert pair.issubset(paths), 'Incomplete update policy'
+              policy = pathlib.Path(prefix + 'update-policy.json')
+              signature = pathlib.Path(prefix + 'update-policy.json.sig')
+              assert all(p.is_file() and not p.is_symlink() for p in (policy, signature)), 'Invalid policy file'
+              document = policy.read_bytes()
+              assert 0 < len(document) <= 8192 and 0 < signature.stat().st_size <= 2048, 'Policy exceeds limits'
+              data = json.loads(document, object_pairs_hook=unique)
+              assert set(data) == {'schemaVersion', 'revision', 'issuedAt', 'minimumVersions', 'reason'}, 'Unknown policy fields'
+              assert type(data['schemaVersion']) is int and data['schemaVersion'] == 1 and type(data['revision']) is int and data['revision'] > 0, 'Invalid policy revision'
+              minimum = data['minimumVersions']
+              assert set(minimum) in ({'windows', 'android'}, {'windows', 'android', 'linux'}), 'Unknown policy platform'
+              if scope == 'shared':
+                  assert set(minimum) == {'windows', 'android'}, 'Separate platform policy required'
+              else:
+                  assert minimum['windows'] is None and minimum['android'] is None, 'Policy affects another platform'
+                  assert 'linux' not in minimum or minimum['linux'] is not None, 'Unset minimum must be omitted'
+              assert all(value is None or isinstance(value, str) and re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value) for value in minimum.values()), 'Invalid minimum version'
+              signer = pathlib.Path('.github/signers').read_text().strip().split()
+              assert len(signer) == 4 and signer[:3] == ['119267804+ozimellow@users.noreply.github.com', 'namespaces="git"', 'ssh-ed25519'], 'Unexpected publisher'
+              with tempfile.TemporaryDirectory(prefix='policy-trust-') as temp:
+                  trust = pathlib.Path(temp) / 'allowed_signers'
+                  trust.write_text(signer[0] + ' namespaces="kin-client-update-policy" ' + ' '.join(signer[2:]) + '\n')
+                  subprocess.run(['ssh-keygen', '-Y', 'verify', '-f', str(trust), '-I', signer[0], '-n', 'kin-client-update-policy', '-s', str(signature)], input=document, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+          PY
+      - name: Record this run's approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, shutil
+          source = pathlib.Path('releases') / ('v' + os.environ['RELEASE_VERSION'])
+          def unique(pairs):
+              result = {}
+              for key, value in pairs:
+                  assert key not in result, 'Duplicate release field'
+                  result[key] = value
+              return result
+          metadata = json.loads((source / 'release.json').read_text(), object_pairs_hook=unique)
+          assert metadata['schemaVersion'] == 5 and metadata['tag'] == 'v' + os.environ['RELEASE_VERSION']
+          assert metadata['manualAcceptance'] is False
+          metadata['manualAcceptance'] = True
+          approved = pathlib.Path(os.environ['RUNNER_TEMP']) / 'approved-release'
+          approved.mkdir()
+          (approved / 'release.json').write_text(json.dumps(metadata) + '\n')
+          shutil.copyfile(source / 'release.md', approved / 'release.md')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Approved by @' + os.environ['GITHUB_ACTOR'] + '\n\nVersion: `' + metadata['tag'] + '`\n\nCommit: `' + os.environ['GITHUB_SHA'] + '`\n\n')
+              for name, checksum in sorted(metadata['reviewedPackages'].items()):
+                  summary.write(name + ' SHA-256: `' + checksum + '`\n\n')
+              summary.write('Notes SHA-256: `' + metadata['reviewedNotesSha256'] + '`\n')
+          PY
+      - name: Verify staged downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,tagName,targetCommitish > "$RUNNER_TEMP/staged-release.json"
+          python3 - <<'PY'
+          import json, os
+          r = json.load(open(os.environ['RUNNER_TEMP'] + '/staged-release.json'))
+          assert r['isDraft'] is True and r['isPrerelease'] is False
+          assert r['tagName'] == 'v' + os.environ['RELEASE_VERSION'] and r['targetCommitish'] == os.environ['EXPECTED_COMMIT']
+          PY
+          gh release download "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/candidate"
+          python3 .github/scripts/verify-release.py "$RUNNER_TEMP/approved-release/release.json" "$RUNNER_TEMP/candidate"
+      - name: Publish verified release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$EXPECTED_COMMIT"
+          gh release edit "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest --title "v$RELEASE_VERSION" --notes-file "releases/v$RELEASE_VERSION/release.md"
+      - name: Verify published downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/published"
+          python3 .github/scripts/verify-release.py "$RUNNER_TEMP/approved-release/release.json" "$RUNNER_TEMP/published"
+          gh release view "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,tagName,targetCommitish > "$RUNNER_TEMP/published-release.json"
+          python3 - <<'PY'
+          import json, os
+          r = json.load(open(os.environ['RUNNER_TEMP'] + '/published-release.json'))
+          assert r['isDraft'] is False and r['isPrerelease'] is False
+          assert r['tagName'] == 'v' + os.environ['RELEASE_VERSION'] and r['targetCommitish'] == os.environ['EXPECTED_COMMIT']
+          print(r['url'])
+          PY
