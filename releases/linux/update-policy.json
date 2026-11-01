@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "revision": 2,
+  "issuedAt": "2026-11-01T12:10:16.908Z",
+  "minimumVersions": {
+    "windows": null,
+    "android": null,
+    "linux": "0.0.7"
+  },
+  "reason": "Update to Kin 0.0.7."
+}
