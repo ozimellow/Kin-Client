@@ -6,18 +6,18 @@
     "allowed_signers": "a8225e435deee53acfbd8580a648732b64c1f0a2dab189799f9360d2059084ed",
     "kin-client-0.0.7-android-arm64.apk": "23897e521fb9838ba552bbbb4d2729d0a66e58f5f97ca0cc6d51cae3fe19de94",
     "kin-client-0.0.7-linux-x64.zip": "ba3d95ddd1dd28f6c4c3f6c96a4826dd5af823f5fccba1acae1ad2da46f261c1",
-    "kin-client-0.0.7-windows-x64.zip": "1337ed4f9a0d5bdba92b8034466b77e1f1a20e040a0cbd750c716ccaa1af43b0",
+    "kin-client-0.0.7-windows-x64.zip": "4e9bb8a4683be9bcd838d17397ff63c1554eed661c7e897e5b77fe80ce83ca5a",
     "linux-x64.json": "bd4575779ddc118aa0f4cc12430f9a27f60d636cdbd9a986af83d390b0b63291",
     "release-signing-key.pub": "ac206530d77b8b80ceadfc487a39dafd7f474cd3258c6f3713aa5f621a291732",
-    "SHA256SUMS": "4d2ef7e05d5136ab124bae091573bb3491762ad2e3ae8b60e286e3268c6e0ee9",
+    "SHA256SUMS": "9de30a9b8b72374c375f1f7a778ad96e0a051f9f4afdf827af515d73a21f0e43",
     "SHA256SUMS-linux-x64": "ea32e888774f912854ead8e113ce21f5c7800cd91cde0cc38d0ae4c6f47bbb34",
     "SHA256SUMS-linux-x64.sig": "5078aad6a5bf4fa1e8a6f9a9c8896e6c85d6e7e5cfcc62d845146f1fd65baed4",
-    "SHA256SUMS.sig": "69b3bcd87e46bc3cecdb228c547701808761464b0034fc847f91acbb58211d89"
+    "SHA256SUMS.sig": "398b9a4f935288ec2801f05b9266a081f43cef56e798604ade7618473a143055"
   },
   "reviewedPackages": {
     "kin-client-0.0.7-android-arm64.apk": "23897e521fb9838ba552bbbb4d2729d0a66e58f5f97ca0cc6d51cae3fe19de94",
     "kin-client-0.0.7-linux-x64.zip": "ba3d95ddd1dd28f6c4c3f6c96a4826dd5af823f5fccba1acae1ad2da46f261c1",
-    "kin-client-0.0.7-windows-x64.zip": "1337ed4f9a0d5bdba92b8034466b77e1f1a20e040a0cbd750c716ccaa1af43b0"
+    "kin-client-0.0.7-windows-x64.zip": "4e9bb8a4683be9bcd838d17397ff63c1554eed661c7e897e5b77fe80ce83ca5a"
   },
   "reviewedNotesSha256": "0039cd59a9a17752266d1d4bcbcee5e346470cc65ffd3a68c732d57c291f7fa9",
   "android": {
